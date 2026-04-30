@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from 'react';
 // 如果在區網使用，它會自動找區網的 Python (8000 port)
 // 如果部署到外部，請將 "" 替換為您的 PythonAnywhere 網址
 // ==========================================
-const CLOUD_BACKEND_URL = ""; // 例如: "https://carped450.pythonanywhere.com"
+const CLOUD_BACKEND_URL = "https://carped450.pythonanywhere.com"; // 例如: "https://carped450.pythonanywhere.com"
 
 const getBackendUrl = () => {
   if (CLOUD_BACKEND_URL) return CLOUD_BACKEND_URL;
