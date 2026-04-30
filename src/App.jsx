@@ -1,21 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
+// === 引入 Firebase 套件 ===
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, setDoc } from "firebase/firestore";
 
-// ==========================================
-// 魔法：自動偵測後端大腦的正確位置
-// 如果在區網使用，它會自動找區網的 Python (8000 port)
-// 如果部署到外部，請將 "" 替換為您的 PythonAnywhere 網址
-// ==========================================
-const CLOUD_BACKEND_URL = "https://skating-backend.vercel.app"; // 例如: "https://carped450.pythonanywhere.com"
-
-const getBackendUrl = () => {
-  if (CLOUD_BACKEND_URL) return CLOUD_BACKEND_URL;
-  const hostname = window.location.hostname;
-  // 如果是 localhost 或 192.168 開頭，自動對應本機的 8000 port
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {
-    return `http://${hostname}:8000`;
-  }
-  return "http://127.0.0.1:8000"; // Fallback
+// === 貼上您的 Firebase 專屬鑰匙 ===
+const firebaseConfig = {
+  apiKey: "AIzaSyAMiVvAE9NCjgrWgLoDb4Akr4jWVVpeHrM",
+  authDomain: "scoring-db-7c3a7.firebaseapp.com",
+  projectId: "scoring-db-7c3a7",
+  storageBucket: "scoring-db-7c3a7.firebasestorage.app",
+  messagingSenderId: "152493798679",
+  appId: "1:152493798679:web:e9ff4211ec18767b2e7352",
+  measurementId: "G-H7TXDTSN6F"
 };
+
+// 初始化 Firebase 與資料庫 (Firestore)
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const pcsCriteria = {
   composition: ["Multidimensional use of space and design of movements", "Connections between and within elements", "Choreography reflecting musical phrase and form", "Pattern and ice coverage", "Unity"],
@@ -107,82 +108,61 @@ export default function App() {
     setCleanAppUrl(appUrl);
   };
 
-  // --- Blocker 拖曳邏輯 ---
   const startDrag = (e) => {
     e.stopPropagation();
     try { e.target.setPointerCapture(e.pointerId); } catch(err){}
-    dragInfo.current = { 
-        ...dragInfo.current, isDragging: true, isResizing: false,
-        startX: e.clientX, startY: e.clientY, 
-        initialX: blockerState.x, initialY: blockerState.y 
-    };
+    dragInfo.current = { ...dragInfo.current, isDragging: true, isResizing: false, startX: e.clientX, startY: e.clientY, initialX: blockerState.x, initialY: blockerState.y };
   };
 
   const onDragMove = (e) => {
     if (!dragInfo.current.isDragging) return;
-    setBlockerState(prev => ({
-        ...prev,
-        x: dragInfo.current.initialX + (e.clientX - dragInfo.current.startX),
-        y: dragInfo.current.initialY + (e.clientY - dragInfo.current.startY)
-    }));
+    setBlockerState(prev => ({ ...prev, x: dragInfo.current.initialX + (e.clientX - dragInfo.current.startX), y: dragInfo.current.initialY + (e.clientY - dragInfo.current.startY) }));
   };
 
-  const stopDrag = (e) => {
-    dragInfo.current.isDragging = false;
-    try { e.target.releasePointerCapture(e.pointerId); } catch(err){}
-  };
+  const stopDrag = (e) => { dragInfo.current.isDragging = false; try { e.target.releasePointerCapture(e.pointerId); } catch(err){} };
 
-  // --- Blocker 縮放邏輯 ---
   const startResize = (e) => {
     e.stopPropagation();
     try { e.target.setPointerCapture(e.pointerId); } catch(err){}
-    dragInfo.current = { 
-        ...dragInfo.current, isDragging: false, isResizing: true,
-        startX: e.clientX, startY: e.clientY, 
-        initialW: blockerState.width, initialH: blockerState.height 
-    };
+    dragInfo.current = { ...dragInfo.current, isDragging: false, isResizing: true, startX: e.clientX, startY: e.clientY, initialW: blockerState.width, initialH: blockerState.height };
   };
 
   const onResizeMove = (e) => {
     if (!dragInfo.current.isResizing) return;
-    setBlockerState(prev => ({
-        ...prev,
-        width: Math.max(150, dragInfo.current.initialW + (e.clientX - dragInfo.current.startX)), 
-        height: Math.max(60, dragInfo.current.initialH + (e.clientY - dragInfo.current.startY)) 
-    }));
+    setBlockerState(prev => ({ ...prev, width: Math.max(150, dragInfo.current.initialW + (e.clientX - dragInfo.current.startX)), height: Math.max(60, dragInfo.current.initialH + (e.clientY - dragInfo.current.startY)) }));
   };
 
-  const stopResize = (e) => {
-    dragInfo.current.isResizing = false;
-    try { e.target.releasePointerCapture(e.pointerId); } catch(err){}
-  };
+  const stopResize = (e) => { dragInfo.current.isResizing = false; try { e.target.releasePointerCapture(e.pointerId); } catch(err){} };
 
+  // ==========================================
+  // 🌟 Firebase 核心寫入邏輯
+  // ==========================================
   const submitScoresToBackend = async () => {
     setIsSent(true); 
+    
+    // 確保 skater_id 是唯一值 (檔名)
+    const skater_id = skaterInfo.name && skaterInfo.name !== 'WAITING FOR DATA...' 
+        ? skaterInfo.name 
+        : `Unknown_${skaterInfo.stn || Date.now()}`;
+
     const payload = {
-      skater: skaterInfo.name, stn: skaterInfo.stn, noc: skaterInfo.noc, competition: skaterInfo.comp,
+      skater: skaterInfo.name, 
+      stn: skaterInfo.stn, 
+      noc: skaterInfo.noc, 
+      competition: skaterInfo.comp,
       elements: elements,
       pcs: { composition: pcs.composition, presentation: pcs.presentation, skatingSkills: pcs.skatingSkills },
-      pcs_criteria: pcsSubScores
+      pcs_criteria: pcsSubScores,
+      timestamp: new Date().toISOString() // 記錄送出時間
     };
 
-    const targetUrl = `${getBackendUrl()}/api/submit_scores`;
-    
     try {
-      const response = await fetch(targetUrl, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-          throw new Error(`HTTP Error: ${response.status}`);
-      }
-      
-      setNotification(`✅ 已成功將 [${skaterInfo.name}] 的成績發送至伺服器！`);
+      // 魔法發生在這裡：直接存入名為 'scores' 的集合 (Collection) 裡
+      await setDoc(doc(db, "scores", skater_id), payload);
+      setNotification(`✅ 已成功將 [${skaterInfo.name}] 的成績發送至 Firebase 雲端！`);
     } catch (error) {
-      console.error(error);
-      alert(`傳送失敗！\n目標網址: ${targetUrl}\n請確認 Python 伺服器已啟動，並且平板有連上同一個 Wi-Fi。`);
+      console.error("Firebase 錯誤:", error);
+      alert(`傳送失敗！請確認網路狀態。\n錯誤訊息: ${error.message}`);
       setIsSent(false); 
     }
   };
@@ -212,12 +192,7 @@ export default function App() {
       const lines = text.split('\n').filter(line => line.trim() !== '');
       const parsedSkaters = lines.map(line => {
         const cols = line.split(',');
-        return {
-          comp: cols[0] ? cols[0].trim() : '', 
-          stn: cols[1] ? cols[1].trim() : '',
-          name: cols[2] ? cols[2].trim().replace(/\//g, ' & ') : '', 
-          noc: cols[3] ? cols[3].trim() : ''
-        };
+        return { comp: cols[0] ? cols[0].trim() : '', stn: cols[1] ? cols[1].trim() : '', name: cols[2] ? cols[2].trim().replace(/\//g, ' & ') : '', noc: cols[3] ? cols[3].trim() : '' };
       });
 
       if (parsedSkaters.length > 0) {
@@ -233,12 +208,7 @@ export default function App() {
   };
 
   const handleNextSkater = () => {
-    if (skaterList.length === 0) {
-      setSkaterInfo({ comp: skaterInfo.comp, stn: '', noc: '', name: '' });
-      handleNewProgram(false);
-      return;
-    }
-
+    if (skaterList.length === 0) { setSkaterInfo({ comp: skaterInfo.comp, stn: '', noc: '', name: '' }); handleNewProgram(false); return; }
     if (currentSkaterIndex < skaterList.length - 1) {
       const nextIdx = currentSkaterIndex + 1;
       setCurrentSkaterIndex(nextIdx);
@@ -265,7 +235,6 @@ export default function App() {
     const newElements = [...elements];
     let current = newElements[activeIndex].name || '';
     const isJumpStr = /^([1-5]|Th)(T|S|Lo|F|Lz|A)$/.test(str) || /^[1-5](T|S|Lo|F|Lz|A)$/.test(str);
-    
     if (isJumpStr && current.length > 0) {
       if (!current.endsWith('+') && !current.endsWith('+1Eu+') && !current.endsWith('+SEQ') && !current.endsWith('+REP') && !current.endsWith('+COMBO') && !current.endsWith('*')) {
           current += '+';
@@ -307,9 +276,7 @@ export default function App() {
   };
 
   const handleModalDecimalClick = (dec) => {
-    if (activeModalField === 'overall') {
-      setTempPcsValue(`${tempPcsValue.split('.')[0] || '0'}${dec}`);
-    } else {
+    if (activeModalField === 'overall') { setTempPcsValue(`${tempPcsValue.split('.')[0] || '0'}${dec}`); } else {
       const newScores = [...tempSubScores];
       newScores[activeModalField] = `${(tempSubScores[activeModalField] || '0.00').split('.')[0] || '0'}${dec}`;
       setTempSubScores(newScores);
@@ -329,30 +296,15 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#1a1a1a] text-slate-100 font-sans select-none overflow-hidden relative">
-      
       {/* 遮罩 (Score Blocker) 渲染區塊 */}
       {showBlocker && (
-        <div
-          style={{ 
-              position: 'absolute', 
-              top: blockerState.y, 
-              left: blockerState.x, 
-              width: blockerState.width + 'px', 
-              height: blockerState.height + 'px', 
-              zIndex: 9999 
-          }}
-          className="bg-black border-2 border-slate-500 shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex flex-col rounded-md overflow-visible relative"
-        >
-          <div
-            className="bg-slate-800 h-8 w-full cursor-move flex justify-between items-center px-3 shrink-0 select-none border-b border-slate-600 rounded-t-sm touch-none"
-            onPointerDown={startDrag} onPointerMove={onDragMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}
-          >
+        <div style={{ position: 'absolute', top: blockerState.y, left: blockerState.x, width: blockerState.width + 'px', height: blockerState.height + 'px', zIndex: 9999 }} className="bg-black border-2 border-slate-500 shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex flex-col rounded-md overflow-visible relative">
+          <div className="bg-slate-800 h-8 w-full cursor-move flex justify-between items-center px-3 shrink-0 select-none border-b border-slate-600 rounded-t-sm touch-none" onPointerDown={startDrag} onPointerMove={onDragMove} onPointerUp={stopDrag} onPointerCancel={stopDrag}>
             <span className="text-[11px] font-bold text-slate-400 tracking-wider">SCORE BLOCKER (DRAG)</span>
             <button onClick={(e) => {e.stopPropagation(); setShowBlocker(false);}} className="text-slate-400 hover:text-red-500 font-bold text-sm bg-slate-700/50 hover:bg-slate-700 w-6 h-6 flex items-center justify-center rounded">✕</button>
           </div>
           <div className="flex-1 bg-black w-full h-full"></div>
-          <div className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize flex items-end justify-end p-1 touch-none"
-             onPointerDown={startResize} onPointerMove={onResizeMove} onPointerUp={stopResize} onPointerCancel={stopResize}>
+          <div className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize flex items-end justify-end p-1 touch-none" onPointerDown={startResize} onPointerMove={onResizeMove} onPointerUp={stopResize} onPointerCancel={stopResize}>
              <div className="w-4 h-4 opacity-50 relative pointer-events-none">
                  <div className="absolute right-0 bottom-0 w-full h-[2px] bg-white transform -rotate-45 translate-x-1 translate-y-[-2px]"></div>
                  <div className="absolute right-0 bottom-0 w-3/4 h-[2px] bg-white transform -rotate-45 translate-x-[2px] translate-y-[-6px]"></div>
@@ -419,11 +371,6 @@ export default function App() {
 
         <div className="flex-1 flex flex-col bg-black overflow-hidden relative">
           
-          {/* =========================================
-              使用 CSS hidden 取代條件渲染，保護影片不中斷
-              ========================================= */}
-          
-          {/* ----- INPUT 面板 ----- */}
           <div className={`flex-1 overflow-y-auto bg-[#141414] p-4 flex-col gap-4 ${isInputMode ? 'flex' : 'hidden'}`}>
             <div className="flex justify-between items-center bg-[#222] p-2 rounded border border-slate-700 sticky top-0 z-10 shadow-md shrink-0">
               <div className="flex items-center gap-3">
@@ -506,7 +453,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* ----- VIDEO 播放器區塊 ----- */}
           <div className={`flex-1 flex-col bg-black relative ${!isInputMode ? 'flex' : 'hidden'}`}>
             {!embedUrl ? (
                <div className="flex-1 flex flex-col items-center justify-center p-8">
@@ -530,7 +476,6 @@ export default function App() {
                </div>
             ) : (
                <div className="w-full h-full relative group">
-                  {/* 自動判斷：如果是圖檔或攝影機 MJPEG 串流，則用 img 標籤 */}
                   {embedUrl.match(/\.(jpeg|jpg|gif|png)$/i) || embedUrl.includes(':8080/video') ? (
                      <img src={embedUrl} className="w-full h-full object-contain bg-black" alt="Live Stream" />
                   ) : embedUrl.endsWith('.mp4') ? (
@@ -616,32 +561,15 @@ export default function App() {
                 </h3>
                 
                 <div className="flex-1 space-y-2 overflow-y-auto pr-2">
-                  <div 
-                    onClick={() => setActiveModalField('overall')}
-                    className={`p-3 rounded border-2 cursor-pointer flex justify-between items-center transition-colors mb-4 shadow-md
-                      ${activeModalField === 'overall' ? 'bg-[#0b5394] border-[#4fa3e3]' : 'bg-[#333] border-slate-600 hover:bg-[#444]'}
-                    `}
-                  >
+                  <div onClick={() => setActiveModalField('overall')} className={`p-3 rounded border-2 cursor-pointer flex justify-between items-center transition-colors mb-4 shadow-md ${activeModalField === 'overall' ? 'bg-[#0b5394] border-[#4fa3e3]' : 'bg-[#333] border-slate-600 hover:bg-[#444]'}`}>
                     <span className="font-black text-white tracking-widest uppercase">Overall Score</span>
-                    <span className={`text-2xl font-mono px-3 py-1 rounded bg-black/50 ${activeModalField === 'overall' ? 'text-white' : 'text-slate-300'}`}>
-                      {tempPcsValue}
-                    </span>
+                    <span className={`text-2xl font-mono px-3 py-1 rounded bg-black/50 ${activeModalField === 'overall' ? 'text-white' : 'text-slate-300'}`}>{tempPcsValue}</span>
                   </div>
 
                   {pcsCriteria[activePcsCategory].map((criterion, idx) => (
-                    <div 
-                      key={idx}
-                      onClick={() => setActiveModalField(idx)}
-                      className={`p-3 rounded border cursor-pointer flex justify-between items-center transition-colors
-                        ${activeModalField === idx ? 'bg-slate-700 border-yellow-500' : 'bg-[#2a2a2a] border-slate-700 hover:bg-[#333]'}
-                      `}
-                    >
+                    <div key={idx} onClick={() => setActiveModalField(idx)} className={`p-3 rounded border cursor-pointer flex justify-between items-center transition-colors ${activeModalField === idx ? 'bg-slate-700 border-yellow-500' : 'bg-[#2a2a2a] border-slate-700 hover:bg-[#333]'}`}>
                       <span className="text-slate-300 text-sm leading-snug w-[75%] pr-2">{criterion}</span>
-                      <span className={`text-xl font-mono px-3 py-1 rounded text-center min-w-[70px]
-                        ${tempSubScores[idx] !== null ? 'bg-slate-900 text-yellow-400' : 'bg-slate-800 text-slate-500'}
-                      `}>
-                        {tempSubScores[idx] !== null ? tempSubScores[idx] : '-.--'}
-                      </span>
+                      <span className={`text-xl font-mono px-3 py-1 rounded text-center min-w-[70px] ${tempSubScores[idx] !== null ? 'bg-slate-900 text-yellow-400' : 'bg-slate-800 text-slate-500'}`}>{tempSubScores[idx] !== null ? tempSubScores[idx] : '-.--'}</span>
                     </div>
                   ))}
                 </div>
@@ -653,60 +581,24 @@ export default function App() {
               </div>
 
               <div className="w-1/2 p-6 bg-[#111] flex flex-col justify-center gap-6 relative">
-                <div className="absolute top-4 right-6 text-slate-500 font-mono text-sm">
-                  Editing: {activeModalField === 'overall' ? 'OVERALL' : `Criterion #${activeModalField + 1}`}
-                </div>
+                <div className="absolute top-4 right-6 text-slate-500 font-mono text-sm">Editing: {activeModalField === 'overall' ? 'OVERALL' : `Criterion #${activeModalField + 1}`}</div>
                 
                 <div className="flex justify-center gap-4">
-                  {['.25', '.50', '.75', '.00'].map(dec => (
-                    <button 
-                      key={dec}
-                      onClick={() => handleModalDecimalClick(dec)}
-                      className="flex-1 py-4 bg-slate-800 text-blue-300 text-2xl font-bold rounded hover:bg-slate-700 border border-slate-600 active:bg-blue-900 transition-colors"
-                    >
-                      {dec}
-                    </button>
-                  ))}
+                  {['.25', '.50', '.75', '.00'].map(dec => (<button key={dec} onClick={() => handleModalDecimalClick(dec)} className="flex-1 py-4 bg-slate-800 text-blue-300 text-2xl font-bold rounded hover:bg-slate-700 border border-slate-600 active:bg-blue-900 transition-colors">{dec}</button>))}
                 </div>
 
                 <div className="flex flex-col gap-4">
                   <div className="flex justify-between gap-2">
-                    {[0, 1, 2, 3, 4, 5].map(num => (
-                      <button 
-                        key={num}
-                        onClick={() => handleModalNumberClick(num)}
-                        className="flex-1 py-4 bg-[#2b3036] text-white text-3xl font-bold rounded hover:bg-[#3b424a] border border-black active:bg-slate-600 transition-colors"
-                      >
-                        {num}
-                      </button>
-                    ))}
+                    {[0, 1, 2, 3, 4, 5].map(num => (<button key={num} onClick={() => handleModalNumberClick(num)} className="flex-1 py-4 bg-[#2b3036] text-white text-3xl font-bold rounded hover:bg-[#3b424a] border border-black active:bg-slate-600 transition-colors">{num}</button>))}
                   </div>
                   <div className="flex justify-between gap-2">
-                    {[6, 7, 8, 9, 10].map(num => (
-                      <button 
-                        key={num}
-                        onClick={() => handleModalNumberClick(num)}
-                        className="flex-1 py-4 bg-[#2b3036] text-white text-3xl font-bold rounded hover:bg-[#3b424a] border border-black active:bg-slate-600 transition-colors"
-                      >
-                        {num}
-                      </button>
-                    ))}
+                    {[6, 7, 8, 9, 10].map(num => (<button key={num} onClick={() => handleModalNumberClick(num)} className="flex-1 py-4 bg-[#2b3036] text-white text-3xl font-bold rounded hover:bg-[#3b424a] border border-black active:bg-slate-600 transition-colors">{num}</button>))}
                   </div>
                 </div>
 
                 <div className="flex gap-4 mt-6">
-                  <button 
-                    onClick={() => setIsPcsModalOpen(false)}
-                    className="flex-1 py-4 bg-red-900 text-white font-bold tracking-widest rounded hover:bg-red-800 transition-colors"
-                  >
-                    CANCEL
-                  </button>
-                  <button 
-                    onClick={savePcsModal}
-                    className="flex-1 py-4 bg-green-700 text-white font-bold text-xl tracking-widest rounded hover:bg-green-600 transition-colors shadow-lg"
-                  >
-                    SAVE SCORES
-                  </button>
+                  <button onClick={() => setIsPcsModalOpen(false)} className="flex-1 py-4 bg-red-900 text-white font-bold tracking-widest rounded hover:bg-red-800 transition-colors">CANCEL</button>
+                  <button onClick={savePcsModal} className="flex-1 py-4 bg-green-700 text-white font-bold text-xl tracking-widest rounded hover:bg-green-600 transition-colors shadow-lg">SAVE SCORES</button>
                 </div>
               </div>
             </div>
